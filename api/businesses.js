@@ -12,54 +12,62 @@ const {
   getBusinessDetailsById,
   replaceBusinessById,
   deleteBusinessById,
-  getBusinessesByOwnerdId
+  getBusinessesByOwnerdId,
+  verifyBusinessOwner
 } = require('../models/business');
+const { requireAuthentication } = require('../lib/auth');
 
 /*
  * Route to return a paginated list of businesses.
  */
-router.get('/', async (req, res) => {
-  try {
-    /*
-     * Fetch page info, generate HATEOAS links for surrounding pages and then
-     * send response.
-     */
-    const businessPage = await getBusinessesPage(parseInt(req.query.page) || 1);
-    businessPage.links = {};
-    if (businessPage.page < businessPage.totalPages) {
-      businessPage.links.nextPage = `/businesses?page=${businessPage.page + 1}`;
-      businessPage.links.lastPage = `/businesses?page=${businessPage.totalPages}`;
-    }
-    if (businessPage.page > 1) {
-      businessPage.links.prevPage = `/businesses?page=${businessPage.page - 1}`;
-      businessPage.links.firstPage = '/businesses?page=1';
-    }
-    res.status(200).send(businessPage);
-  } catch (err) {
-    console.error(err);
-    res.status(500).send({
-      error: "Error fetching businesses list.  Please try again later."
-    });
-  }
-});
+ router.get('/', async (req, res) => {
+   try {
+     /*
+      * Fetch page info, generate HATEOAS links for surrounding pages and then
+      * send response.
+      */
+     const businessPage = await getBusinessesPage(parseInt(req.query.page) || 1);
+     businessPage.links = {};
+     if (businessPage.page < businessPage.totalPages) {
+       businessPage.links.nextPage = `/businesses?page=${businessPage.page + 1}`;
+       businessPage.links.lastPage = `/businesses?page=${businessPage.totalPages}`;
+     }
+     if (businessPage.page > 1) {
+       businessPage.links.prevPage = `/businesses?page=${businessPage.page - 1}`;
+       businessPage.links.firstPage = '/businesses?page=1';
+     }
+     res.status(200).send(businessPage);
+   } catch (err) {
+     console.error(err);
+     res.status(500).send({
+       error: "Error fetching businesses list.  Please try again later."
+     });
+   }
+ });
 
 /*
  * Route to create a new business.
  */
-router.post('/', async (req, res) => {
+router.post('/', requireAuthentication, async (req, res) => {
   if (validateAgainstSchema(req.body, BusinessSchema)) {
-    try {
-      const id = await insertNewBusiness(req.body);
-      res.status(201).send({
-        id: id,
-        links: {
-          business: `/businesses/${id}`
-        }
-      });
-    } catch (err) {
-      console.error(err);
-      res.status(500).send({
-        error: "Error inserting business into DB.  Please try again later."
+    if (req.user != null && (req.user.admin === 1 || req.user.sub == req.body.ownerid)) {
+      try {
+        const id = await insertNewBusiness(req.body);
+        res.status(201).send({
+          id: id,
+          links: {
+            business: `/businesses/${id}`
+          }
+        });
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({
+          error: "Error inserting business into DB.  Please try again later."
+        });
+      }
+    } else {
+      res.status(403).send({
+        error: "Unauthorized to perform the specified action"
       });
     }
   } else {
@@ -91,24 +99,30 @@ router.get('/:id', async (req, res, next) => {
 /*
  * Route to replace data for a business.
  */
-router.put('/:id', async (req, res, next) => {
+router.put('/:id', requireAuthentication, async (req, res, next) => {
   if (validateAgainstSchema(req.body, BusinessSchema)) {
-    try {
-      const id = parseInt(req.params.id)
-      const updateSuccessful = await replaceBusinessById(id, req.body);
-      if (updateSuccessful) {
-        res.status(200).send({
-          links: {
-            business: `/businesses/${id}`
-          }
+    if (req.user != null && (req.user.admin === 1 || req.user.sub == req.body.ownerid)) {
+      try {
+        const id = parseInt(req.params.id)
+        const updateSuccessful = await replaceBusinessById(id, req.body);
+        if (updateSuccessful) {
+          res.status(200).send({
+            links: {
+              business: `/businesses/${id}`
+            }
+          });
+        } else {
+          next();
+        }
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({
+          error: "Unable to update specified business.  Please try again later."
         });
-      } else {
-        next();
       }
-    } catch (err) {
-      console.error(err);
-      res.status(500).send({
-        error: "Unable to update specified business.  Please try again later."
+    } else {
+      res.status(403).send({
+        error: "Unauthorized to perform the specfied action"
       });
     }
   } else {
@@ -121,18 +135,26 @@ router.put('/:id', async (req, res, next) => {
 /*
  * Route to delete a business.
  */
-router.delete('/:id', async (req, res, next) => {
-  try {
-    const deleteSuccessful = await deleteBusinessById(parseInt(req.params.id));
-    if (deleteSuccessful) {
-      res.status(204).end();
-    } else {
-      next();
+router.delete('/:id', requireAuthentication, async (req, res, next) => {
+  const id = parseInt(req.params.id);
+  const business = await verifyBusinessOwner(id, req.user.sub);
+  if (req.user != null && (req.user.admin === 1 || business)) {
+    try {
+      const deleteSuccessful = await deleteBusinessById(parseInt(req.params.id));
+      if (deleteSuccessful) {
+        res.status(204).end();
+      } else {
+        next();
+      }
+    } catch (err) {
+      console.error(err);
+      res.status(500).send({
+        error: "Unable to delete business.  Please try again later."
+      });
     }
-  } catch (err) {
-    console.error(err);
-    res.status(500).send({
-      error: "Unable to delete business.  Please try again later."
+  } else {
+    res.status(403).send({
+      error: "Unauthorized to perform the specified action"
     });
   }
 });

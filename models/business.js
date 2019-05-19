@@ -218,3 +218,20 @@ function getBusinessesByOwnerId(id) {
   });
 }
 exports.getBusinessesByOwnerId = getBusinessesByOwnerId;
+
+function verifyBusinessOwner(id, userId) {
+  return new Promise((resolve, reject) => {
+    mysqlPool.query(
+      'SELECT * FROM businesses WHERE id = ? and ownerid = ?',
+      [ id, userId ],
+      (err, results) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(results[0]);
+        }
+      }
+    );
+  });
+}
+exports.verifyBusinessOwner = verifyBusinessOwner;

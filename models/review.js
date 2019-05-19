@@ -179,3 +179,20 @@ function getReviewsByUserId(id) {
   });
 }
 exports.getReviewsByUserId = getReviewsByUserId;
+
+function verifyReviewOwner(id, userId) {
+  return new Promise((resolve, reject) => {
+    mysqlPool.query(
+      'SELECT * FROM reviews WHERE id = ? and userid = ?',
+      [ id, userId ],
+      (err, results) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(results[0]);
+        }
+      }
+    );
+  });
+}
+exports.verifyReviewOwner = verifyReviewOwner;

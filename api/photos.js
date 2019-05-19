@@ -10,27 +10,35 @@ const {
   insertNewPhoto,
   getPhotoById,
   replacePhotoById,
-  deletePhotoById
+  deletePhotoById,
+  verifyPhotoOwner
 } = require('../models/photo');
+const { requireAuthentication } = require('../lib/auth');
 
 /*
  * Route to create a new photo.
  */
-router.post('/', async (req, res) => {
+router.post('/', requireAuthentication, async (req, res) => {
   if (validateAgainstSchema(req.body, PhotoSchema)) {
-    try {
-      const id = await insertNewPhoto(req.body);
-      res.status(201).send({
-        id: id,
-        links: {
-          photo: `/photos/${id}`,
-          business: `/businesses/${req.body.businessid}`
-        }
-      });
-    } catch (err) {
-      console.error(err);
-      res.status(500).send({
-        error: "Error inserting photo into DB.  Please try again later."
+    if (req.user != null && (req.user.admin === 1 || req.user.sub === req.body.userid)) {
+      try {
+        const id = await insertNewPhoto(req.body);
+        res.status(201).send({
+          id: id,
+          links: {
+            photo: `/photos/${id}`,
+            business: `/businesses/${req.body.businessid}`
+          }
+        });
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({
+          error: "Error inserting photo into DB.  Please try again later."
+        });
+      }
+    } else {
+      res.status(403).send({
+        error: "Unauthorized to perform the specified action"
       });
     }
   } else {
@@ -62,41 +70,47 @@ router.get('/:id', async (req, res, next) => {
 /*
  * Route to update a photo.
  */
-router.put('/:id', async (req, res, next) => {
+router.put('/:id', requireAuthentication, async (req, res, next) => {
   if (validateAgainstSchema(req.body, PhotoSchema)) {
-    try {
-      /*
-       * Make sure the updated photo has the same businessID and userID as
-       * the existing photo.  If it doesn't, respond with a 403 error.  If the
-       * photo doesn't already exist, respond with a 404 error.
-       */
-      const id = parseInt(req.params.id);
-      const existingPhoto = await getPhotoById(id);
-      if (existingPhoto) {
-        if (req.body.businessid === existingPhoto.businessid && req.body.userid === existingPhoto.userid) {
-          const updateSuccessful = await replacePhotoById(id, req.body);
-          if (updateSuccessful) {
-            res.status(200).send({
-              links: {
-                business: `/businesses/${req.body.businessid}`,
-                photo: `/photos/${id}`
-              }
-            });
+    if (req.user != null && (req.user.admin === 1 || req.user.sub === req.body.userid)) {
+      try {
+        /*
+         * Make sure the updated photo has the same businessID and userID as
+         * the existing photo.  If it doesn't, respond with a 403 error.  If the
+         * photo doesn't already exist, respond with a 404 error.
+         */
+        const id = parseInt(req.params.id);
+        const existingPhoto = await getPhotoById(id);
+        if (existingPhoto) {
+          if (req.body.businessid === existingPhoto.businessid && req.body.userid === existingPhoto.userid) {
+            const updateSuccessful = await replacePhotoById(id, req.body);
+            if (updateSuccessful) {
+              res.status(200).send({
+                links: {
+                  business: `/businesses/${req.body.businessid}`,
+                  photo: `/photos/${id}`
+                }
+              });
+            } else {
+              next();
+            }
           } else {
-            next();
+            res.status(403).send({
+              error: "Updated photo must have the same businessID and userID"
+            });
           }
         } else {
-          res.status(403).send({
-            error: "Updated photo must have the same businessID and userID"
-          });
+          next();
         }
-      } else {
-        next();
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({
+          error: "Unable to update photo.  Please try again later."
+        });
       }
-    } catch (err) {
-      console.error(err);
-      res.status(500).send({
-        error: "Unable to update photo.  Please try again later."
+    } else {
+      res.status(403).send({
+        error: "Unauthorized to perform the specified action"
       });
     }
   } else {
@@ -109,18 +123,26 @@ router.put('/:id', async (req, res, next) => {
 /*
  * Route to delete a photo.
  */
-router.delete('/:id', async (req, res, next) => {
-  try {
-    const deleteSuccessful = await deletePhotoById(parseInt(req.params.id));
-    if (deleteSuccessful) {
-      res.status(204).end();
-    } else {
-      next();
+router.delete('/:id', requireAuthentication, async (req, res, next) => {
+  const id = parseInt(req.params.id);
+  const photo = await verifyPhotoOwner(id, req.user.sub);
+  if (req.user != null && (req.user.admin === 1 || photo)) {
+    try {
+      const deleteSuccessful = await deletePhotoById(parseInt(req.params.id));
+      if (deleteSuccessful) {
+        res.status(204).end();
+      } else {
+        next();
+      }
+    } catch (err) {
+      console.error(err);
+      res.status(500).send({
+        error: "Unable to delete photo.  Please try again later."
+      });
     }
-  } catch (err) {
-    console.error(err);
-    res.status(500).send({
-      error: "Unable to delete photo.  Please try again later."
+  } else {
+    res.status(403).send({
+      error: "Unauthorized to perform the specified action"
     });
   }
 });

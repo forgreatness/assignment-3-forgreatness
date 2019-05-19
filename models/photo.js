@@ -153,3 +153,20 @@ function getPhotosByUserId(id) {
   });
 }
 exports.getPhotosByUserId = getPhotosByUserId;
+
+function verifyPhotoOwner(id, userId) {
+  return new Promise((resolve, reject) => {
+    mysqlPool.query(
+      'SELECT * FROM photos WHERE id = ? and userid = ?',
+      [ id, userId ],
+      (err, results) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(results[0]);
+        }
+      }
+    );
+  });
+}
+exports.verifyPhotoOwner = verifyPhotoOwner;
